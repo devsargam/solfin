@@ -1,11 +1,5 @@
-import React, { useCallback, useState } from "react";
-import {
-  LayoutAnimation,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import React from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Token } from "@/constants/tokens";
 
 interface TokenCardProps {

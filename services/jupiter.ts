@@ -1,6 +1,17 @@
 import { VersionedTransaction } from '@solana/web3.js';
 
-const JUPITER_API = 'https://quote-api.jup.ag/v6';
+const JUPITER_API = 'https://lite-api.jup.ag/swap/v1';
+
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs: number = 12000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export interface JupiterQuote {
   inputMint: string;
@@ -32,7 +43,7 @@ export async function getQuote(
     slippageBps: slippageBps.toString(),
   });
 
-  const res = await fetch(`${JUPITER_API}/quote?${params}`);
+  const res = await fetchWithTimeout(`${JUPITER_API}/quote?${params}`);
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Quote failed: ${err}`);
@@ -45,7 +56,7 @@ export async function getSwapTransaction(
   quoteResponse: JupiterQuote,
   userPublicKey: string,
 ): Promise<Buffer> {
-  const res = await fetch(`${JUPITER_API}/swap`, {
+  const res = await fetchWithTimeout(`${JUPITER_API}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

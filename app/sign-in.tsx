@@ -1,6 +1,6 @@
 import { useLoginWithEmail, useLoginWithOAuth, usePrivy } from '@privy-io/expo';
 import { Redirect, router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -87,7 +87,7 @@ export default function SignInScreen() {
             <Text style={styles.backText}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Sign in with Email</Text>
-          <Text style={styles.subtitle}>We'll send you a one-time code</Text>
+          <Text style={styles.subtitle}>We&apos;ll send you a one-time code</Text>
 
           {!codeSent ? (
             <>

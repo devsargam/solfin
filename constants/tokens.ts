@@ -16,31 +16,17 @@ export const SOLANA_DEVNET_TOKENS: Token[] = [
   },
   {
     symbol: 'USDC',
-    name: 'USD Coin',
-    mint: '4zMMC9srt5Ri5XoGcrwQ45rJQpeKfKaZLMcZFDuwTf7E',
+    name: 'USD Coin (Devnet)',
+    mint: 'BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k',
     decimals: 6,
     logo: '$',
   },
   {
     symbol: 'USDT',
-    name: 'Tether USD',
-    mint: 'Es9vMFrzaCVCmSRJYQ6k4WfM6RfxfYQhW7M6Y82FgVHm',
+    name: 'Tether USD (Devnet)',
+    mint: 'H8UekPGwePSmQ3ttuYGPU1szyFfjZR4N53rymSFwpLPm',
     decimals: 6,
     logo: '₮',
-  },
-  {
-    symbol: 'BONK',
-    name: 'Bonk',
-    mint: ' DezXAZ8z7PnrnRJjz3wgXb1R5ZtG1FBa8hDbWfsJcJWX',
-    decimals: 5,
-    logo: '🐕',
-  },
-  {
-    symbol: 'JUP',
-    name: 'Jupiter',
-    mint: '3u5FnFPoJ7ZyZvSTabJ7UkuFDb35i6eCY9bWgBtYLDpm',
-    decimals: 6,
-    logo: '🪐',
   },
 ];
 
