@@ -1,15 +1,16 @@
 import { usePrivy } from '@privy-io/expo';
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { HelloWave } from '@/components/hello-wave';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Link } from 'expo-router';
+import { TouchableOpacity } from 'react-native';
 
 export default function HomeScreen() {
-  const { user } = usePrivy();
+  const { user, logout } = usePrivy();
 
   return (
     <ParallaxScrollView
@@ -30,49 +31,20 @@ export default function HomeScreen() {
           <ThemedText>
             {user.linked_accounts.find((a) => a.type === 'email')?.address ?? 'No email linked'}
           </ThemedText>
+          <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+            <ThemedText style={styles.logoutText}>Log Out</ThemedText>
+          </TouchableOpacity>
         </ThemedView>
       )}
       <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(app)/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
         <Link href="/modal">
           <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
+            <ThemedText type="subtitle">Explore</ThemedText>
           </Link.Trigger>
           <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
         </Link>
-
         <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+          {`Head to the Swap tab to swap tokens on Solana devnet.`}
         </ThemedText>
       </ThemedView>
     </ParallaxScrollView>
@@ -95,5 +67,18 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     position: 'absolute',
+  },
+  logoutButton: {
+    backgroundColor: '#FF3B30',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  logoutText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
