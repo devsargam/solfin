@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEmbeddedSolanaWallet, usePrivy } from '@privy-io/expo';
-import { Connection } from '@solana/web3.js';
-import * as Clipboard from 'expo-clipboard';
-import { useEffect, useState } from 'react';
+import { useEmbeddedSolanaWallet, usePrivy } from "@privy-io/expo";
+import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { useQuery } from "@tanstack/react-query";
+import * as Clipboard from "expo-clipboard";
+import { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,22 +12,46 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { MetaRow } from '@/components/swap/meta-row';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { MetaRow } from "@/components/swap/meta-row";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { getSolanaPortfolio } from "@/services/portfolio";
 import {
-  getQuote,
-  getSwapTransaction,
-  OrcaQuote,
-} from '@/services/orca';
-import { parseSwapIntent } from '@/services/swap-intent';
+  executeSwap,
+  fetchQuote,
+  RAYDIUM_HOSTS,
+  RaydiumQuote,
+} from "@/services/raydium-swap";
+import { parseSwapIntent } from "@/services/swap-intent";
 
-const SOLANA_RPC = 'https://api.devnet.solana.com';
-const DEFAULT_PROMPT = 'swap 1 SOL to USDC';
+const SOLANA_RPC = "https://api.devnet.solana.com";
+const DEFAULT_PROMPT = "swap 1 SOL to USDC";
 
-type SwapStep = 'idle' | 'quoting' | 'confirming' | 'success' | 'error';
+type SwapExecutionState = "idle" | "confirming" | "success";
+
+function getSwapErrorMessage({
+  walletAddress,
+  parseError,
+  quoteError,
+  executeError,
+}: {
+  walletAddress: string | null;
+  parseError: string | null;
+  quoteError: string;
+  executeError: string;
+}) {
+  if (!walletAddress) {
+    return "Connect to your embedded Solana wallet to preview swaps.";
+  }
+
+  if (parseError) {
+    return parseError;
+  }
+
+  return executeError || quoteError;
+}
 
 export default function HomeScreen() {
   const { user, logout } = usePrivy();
@@ -36,80 +60,83 @@ export default function HomeScreen() {
 
   const [intent, setIntent] = useState(DEFAULT_PROMPT);
   const debouncedIntent = useDebouncedValue(intent, 450);
-  const [step, setStep] = useState<SwapStep>('idle');
-  const [executeError, setExecuteError] = useState('');
-  const [txSignature, setTxSignature] = useState('');
+  const [executionState, setExecutionState] =
+    useState<SwapExecutionState>("idle");
+  const [executeError, setExecuteError] = useState("");
+  const [txSignature, setTxSignature] = useState("");
+  const [txExplorerUrl, setTxExplorerUrl] = useState("");
   const [copiedWallet, setCopiedWallet] = useState(false);
 
   const { parsed, error: parseError } = parseSwapIntent(debouncedIntent);
-  const userEmail = user?.linked_accounts.find((account) => account.type === 'email')?.address;
+  const userEmail = user?.linked_accounts.find(
+    (account) => account.type === "email",
+  )?.address;
 
-  useEffect(() => {
-    setTxSignature('');
-    setExecuteError('');
-  }, [debouncedIntent]);
-
-  const quoteQuery = useQuery<OrcaQuote>({
-    queryKey: ['swap-quote', walletAddress, parsed?.fromToken.mint, parsed?.toToken.mint, parsed?.amount],
-    enabled: Boolean(walletAddress && parsed && !parseError),
+  const quoteQuery = useQuery<RaydiumQuote>({
+    queryKey: [
+      "raydium-quote",
+      parsed?.fromToken.mint,
+      parsed?.toToken.mint,
+      parsed?.amount,
+    ],
+    enabled: Boolean(parsed && !parseError),
     queryFn: async () => {
       if (!parsed) {
-        throw new Error('Missing parsed swap intent.');
+        throw new Error("Missing parsed swap intent.");
       }
 
-      const amountInBaseUnits = Math.round(
-        parseFloat(parsed.amount) * 10 ** parsed.fromToken.decimals,
-      ).toString();
-
-      return getQuote(parsed.fromToken.mint, parsed.toToken.mint, amountInBaseUnits);
+      return fetchQuote(
+        RAYDIUM_HOSTS.devnet,
+        parsed.fromToken.mint,
+        parsed.toToken.mint,
+        parseFloat(parsed.amount),
+        parsed.fromToken.decimals,
+        100,
+      );
     },
   });
 
   const quote = quoteQuery.data ?? null;
 
+  const balanceQuery = useQuery({
+    queryKey: ["solana-balance", walletAddress],
+    enabled: Boolean(walletAddress),
+    queryFn: () => getSolanaPortfolio(walletAddress!),
+    refetchInterval: 15_000,
+  });
+
+  const devnetBalance = balanceQuery.data?.nativeBalance ?? null;
+
   const outputAmount =
     quote && parsed
-      ? (parseFloat(quote.outAmount) / 10 ** parsed.toToken.decimals).toFixed(
-          Math.min(parsed.toToken.decimals, 4),
-        )
-      : '';
+      ? (
+          Number(quote.data.outputAmount) /
+          10 ** parsed.toToken.decimals
+        ).toFixed(Math.min(parsed.toToken.decimals, 4))
+      : "";
 
   const minReceived =
     quote && parsed
       ? `${(
-          parseFloat(quote.otherAmountThreshold) /
+          Number(quote.data.otherAmountThreshold) /
           10 ** parsed.toToken.decimals
-        ).toFixed(Math.min(parsed.toToken.decimals, 4))} ${parsed.toToken.symbol}`
-      : '-';
+        ).toFixed(
+          Math.min(parsed.toToken.decimals, 4),
+        )} ${parsed.toToken.symbol}`
+      : "-";
 
-  const quoteError = quoteQuery.error instanceof Error ? quoteQuery.error.message : '';
-  const errorMsg = !walletAddress
-    ? 'Connect to your embedded Solana wallet to preview swaps.'
-    : parseError
-      ? parseError
-      : quoteError.includes('UNSUPPORTED_PAIR')
-        ? 'That pair is not enabled yet. Right now we support Orca devnet pools for SOL/USDC and USDC/USDT.'
-        : executeError || quoteError;
+  const priceImpact = quote ? `${quote.data.priceImpactPct.toFixed(2)}%` : "-";
 
-  useEffect(() => {
-    if (step === 'confirming' || step === 'success') {
-      return;
-    }
+  const quoteError =
+    quoteQuery.error instanceof Error ? quoteQuery.error.message : "";
+  const errorMsg = getSwapErrorMessage({
+    walletAddress,
+    parseError,
+    quoteError,
+    executeError,
+  });
 
-    if (parseError || executeError || quoteQuery.isError) {
-      setStep('error');
-      return;
-    }
-
-    if (quoteQuery.isFetching) {
-      setStep('quoting');
-      return;
-    }
-
-    setStep('idle');
-  }, [executeError, parseError, quoteQuery.isError, quoteQuery.isFetching, step]);
-
-  const executeSwap = async () => {
+  const handleSwap = async () => {
     if (!quote || !parsed || !walletAddress) {
       return;
     }
@@ -119,37 +146,68 @@ export default function HomeScreen() {
       return;
     }
 
-    setStep('confirming');
-    setExecuteError('');
+    setExecutionState("confirming");
+    setExecuteError("");
 
     try {
-      const connection = new Connection(SOLANA_RPC, 'confirmed');
-      const transaction = await getSwapTransaction(quote, walletAddress);
+      const connection = new Connection(SOLANA_RPC, "confirmed");
       const provider = await wallet.getProvider();
-      const { signature } = await provider.request({
-        method: 'signAndSendTransaction',
-        params: { transaction, connection },
-      });
-      setTxSignature(signature);
-      setStep('success');
+
+      const walletAdapter = {
+        publicKey: new PublicKey(walletAddress),
+        signTransaction: async <T extends VersionedTransaction>(
+          tx: T,
+        ): Promise<T> => {
+          const result = await provider.request({
+            method: "signTransaction",
+            params: { transaction: tx },
+          });
+          return result.signedTransaction as T;
+        },
+      };
+
+      const result = await executeSwap(
+        connection,
+        RAYDIUM_HOSTS.devnet,
+        walletAdapter,
+        {
+          inputMint: parsed.fromToken.mint,
+          outputMint: parsed.toToken.mint,
+          inputDecimals: parsed.fromToken.decimals,
+          outputDecimals: parsed.toToken.decimals,
+          amount: parseFloat(parsed.amount),
+          slippageBps: 100,
+          txVersion: "V0",
+          computeUnitPriceMicroLamports: "465840",
+        },
+      );
+
+      setTxSignature(result.signature);
+      setTxExplorerUrl(result.explorerUrl);
+      setExecutionState("success");
+      balanceQuery.refetch();
     } catch (error) {
-      setStep('error');
-      setExecuteError(error instanceof Error ? error.message : 'Transaction failed.');
+      setExecutionState("idle");
+      setExecuteError(
+        error instanceof Error ? error.message : "Transaction failed.",
+      );
     }
   };
 
-  const isBusy = quoteQuery.isFetching || step === 'confirming';
-  const callToAction = step === 'confirming'
-    ? 'Confirming swap...'
-    : step === 'quoting'
-      ? 'Finding the best route...'
-      : errorMsg
-        ? 'Fix the route to continue'
-        : !parsed
-          ? 'Describe the swap you want'
-          : !quote
-            ? 'Waiting for a valid route'
-            : `Swap ${parsed.fromToken.symbol} for ${parsed.toToken.symbol}`;
+  const isQuoting = quoteQuery.isFetching;
+  const isBusy = isQuoting || executionState === "confirming";
+  const callToAction =
+    executionState === "confirming"
+      ? "Confirming swap..."
+      : isQuoting
+        ? "Finding the best route..."
+        : errorMsg
+          ? "Fix the route to continue"
+          : !parsed
+            ? "Describe the swap you want"
+            : !quote
+              ? "Waiting for a valid route"
+              : `Swap ${parsed.fromToken.symbol} for ${parsed.toToken.symbol}`;
 
   const handleCopyWallet = async () => {
     if (!walletAddress) {
@@ -161,32 +219,49 @@ export default function HomeScreen() {
     setTimeout(() => setCopiedWallet(false), 1500);
   };
 
+  const handleIntentChange = (value: string) => {
+    setIntent(value);
+    setTxSignature("");
+    setTxExplorerUrl("");
+    setExecuteError("");
+    setExecutionState("idle");
+  };
+
   return (
-    <SafeAreaView className="flex-1 bg-[#f3f0e8]">
+    <SafeAreaView className="flex-1 bg-[#f3f0e8]" edges={["top"]}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1"
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           className="flex-1"
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 28 }}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 16,
+            paddingBottom: 16,
+          }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           <View className="rounded-[30px] border border-[#dfd8c8] bg-[#f8f5ed] px-5 py-6">
             <View className="flex-row items-start justify-between gap-4">
               <View className="flex-1">
-                <Text className="text-[28px] font-bold text-[#1b1b18]">Solfin</Text>
+                <Text className="text-[28px] font-bold text-[#1b1b18]">
+                  Solfin
+                </Text>
                 <Text className="mt-2 text-[15px] leading-6 text-[#5d5a50]">
-                  Type the swap you want. We&apos;ll route it through live Orca devnet pools and
-                  keep the confirmation step explicit.
+                  Type the swap you want. We&apos;ll route it through Raydium
+                  devnet pools and keep the confirmation step explicit.
                 </Text>
               </View>
               <Pressable
                 className="rounded-full border border-[#d4ccbb] px-4 py-2"
                 onPress={logout}
               >
-                <Text className="text-[13px] font-semibold text-[#3a392f]">Log out</Text>
+                <Text className="text-[13px] font-semibold text-[#3a392f]">
+                  Log out
+                </Text>
               </Pressable>
             </View>
 
@@ -198,16 +273,16 @@ export default function HomeScreen() {
                 className="mt-3 min-h-[160px] text-[28px] font-semibold leading-[38px] text-[#f7f2e8]"
                 multiline
                 value={intent}
-                onChangeText={setIntent}
-                placeholder='swap 1 SOL to USDC'
+                onChangeText={handleIntentChange}
+                placeholder="swap 1 SOL to USDC"
                 placeholderTextColor="#7f7b70"
                 textAlignVertical="top"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
               <Text className="mt-3 text-[13px] text-[#9e988b]">
-                Current parser supports live devnet swaps like `swap 1.25 SOL to USDC` and
-                `swap 5 USDC to USDT`.
+                Supports devnet swaps via Raydium — e.g. `swap 1.25 SOL to USDC`
+                or `swap 10 USDC to RAY`.
               </Text>
             </View>
 
@@ -218,88 +293,116 @@ export default function HomeScreen() {
               <Text className="mt-2 text-[21px] font-semibold text-[#1b1b18]">
                 {parsed
                   ? `${parsed.amount} ${parsed.fromToken.symbol} to ${parsed.toToken.symbol}`
-                  : 'Waiting for a valid swap intent'}
+                  : "Waiting for a valid swap intent"}
               </Text>
               {walletAddress ? (
                 <View className="mt-2 flex-row items-center justify-between gap-3">
-                  <Text className="flex-1 text-[14px] leading-6 text-[#696556]">
-                    Wallet {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)} connected
-                    {userEmail ? ` for ${userEmail}` : ''}.
-                  </Text>
+                  <View className="flex-1">
+                    <Text className="text-[14px] leading-6 text-[#696556]">
+                      Wallet {walletAddress.slice(0, 4)}...
+                      {walletAddress.slice(-4)} connected
+                      {userEmail ? ` for ${userEmail}` : ""}.
+                    </Text>
+                    {balanceQuery.isFetching && !balanceQuery.data ? (
+                      <Text className="mt-1 text-[12px] text-[#9e988b]">
+                        Loading balance...
+                      </Text>
+                    ) : devnetBalance !== null ? (
+                      <Text className="mt-1 text-[14px] font-semibold text-[#1b1b18]">
+                        {devnetBalance} SOL
+                        <Text className="text-[11px] font-normal text-[#9e988b]">
+                          {" "}
+                          (devnet)
+                        </Text>
+                      </Text>
+                    ) : null}
+                  </View>
                   <Pressable
                     className="rounded-full border border-[#d4ccbb] px-3 py-1.5"
                     onPress={handleCopyWallet}
                   >
                     <Text className="text-[12px] font-semibold text-[#3a392f]">
-                      {copiedWallet ? 'Copied' : 'Copy'}
+                      {copiedWallet ? "Copied" : "Copy"}
                     </Text>
                   </Pressable>
                 </View>
               ) : (
                 <Text className="mt-1 text-[14px] leading-6 text-[#696556]">
-                  Sign in and create your embedded wallet before requesting a quote.
+                  Sign in and create your embedded wallet before requesting a
+                  quote.
                 </Text>
               )}
 
               <View className="mt-4">
-                <MetaRow label="Network" value="Solana Devnet" badge="Testing" />
+                <MetaRow
+                  label="Network"
+                  value="Solana Devnet"
+                  badge="Raydium"
+                />
                 <MetaRow
                   label="Route"
                   value={
-                    quote?.poolLabel ??
-                    (parsed ? `${parsed.fromToken.symbol} -> ${parsed.toToken.symbol}` : '-')
+                    parsed
+                      ? `${parsed.fromToken.symbol} → ${parsed.toToken.symbol} (Raydium)`
+                      : "-"
                   }
                 />
-                <MetaRow label="You receive" value={quote && parsed ? `${outputAmount} ${parsed.toToken.symbol}` : '-'} />
-                <MetaRow label="Minimum received" value={minReceived} />
                 <MetaRow
-                  label="Pool fee"
+                  label="You receive"
                   value={
                     quote && parsed
-                      ? `${(
-                          parseFloat(quote.estimatedFeeAmount) /
-                          10 ** parsed.fromToken.decimals
-                        ).toFixed(Math.min(parsed.fromToken.decimals, 6))} ${parsed.fromToken.symbol}`
-                      : '-'
+                      ? `${outputAmount} ${parsed.toToken.symbol}`
+                      : "-"
                   }
                 />
+                <MetaRow label="Minimum received" value={minReceived} />
+                <MetaRow label="Price impact" value={priceImpact} />
               </View>
 
-              {step === 'success' && (
+              {executionState === "success" && (
                 <View className="mt-4 rounded-2xl bg-emerald-50 px-4 py-4">
-                  <Text className="text-base font-bold text-emerald-700">Swap complete</Text>
+                  <Text className="text-base font-bold text-emerald-700">
+                    Swap complete
+                  </Text>
                   <Text className="mt-1 text-[13px] text-emerald-700">
-                    Signature {txSignature.slice(0, 12)}...{txSignature.slice(-8)}
+                    Signature {txSignature.slice(0, 12)}...
+                    {txSignature.slice(-8)}
                   </Text>
                 </View>
               )}
 
               {errorMsg ? (
                 <View className="mt-4 rounded-2xl bg-red-50 px-4 py-4">
-                  <Text className="text-sm font-semibold text-red-600">{errorMsg}</Text>
+                  <Text className="text-sm font-semibold text-red-600">
+                    {errorMsg}
+                  </Text>
                 </View>
               ) : null}
             </View>
           </View>
         </ScrollView>
 
-        <View className="border-t border-[#dfd8c8] bg-[#f3f0e8] px-5 py-4">
+        <View className="border border-[#dfd8c8] bg-[#f3f0e8] px-5 py-4">
           <Pressable
             className={`items-center rounded-[22px] bg-[#1b1b18] py-[18px] ${
-              !quote || isBusy ? 'opacity-50' : 'active:opacity-85'
+              !quote || isBusy ? "opacity-50" : "active:opacity-85"
             }`}
-            onPress={executeSwap}
+            onPress={handleSwap}
             disabled={!quote || isBusy}
           >
             {isBusy ? (
               <View className="flex-row items-center gap-3">
                 <ActivityIndicator size="small" color="#f7f2e8" />
                 <Text className="text-base font-bold text-[#f7f2e8]">
-                  {step === 'confirming' ? 'Confirming swap...' : 'Fetching quote...'}
+                  {executionState === "confirming"
+                    ? "Confirming swap..."
+                    : "Fetching quote..."}
                 </Text>
               </View>
             ) : (
-              <Text className="text-base font-bold text-[#f7f2e8]">{callToAction}</Text>
+              <Text className="text-base font-bold text-[#f7f2e8]">
+                {callToAction}
+              </Text>
             )}
           </Pressable>
         </View>

@@ -19,7 +19,7 @@ for (const token of SOLANA_DEVNET_TOKENS) {
 }
 
 TOKEN_ALIASES.set('usd coin', SOLANA_DEVNET_TOKENS[1]);
-TOKEN_ALIASES.set('tether', SOLANA_DEVNET_TOKENS[2]);
+TOKEN_ALIASES.set('raydium', SOLANA_DEVNET_TOKENS[2]);
 
 function findToken(rawValue: string) {
   return TOKEN_ALIASES.get(rawValue.trim().toLowerCase()) ?? null;

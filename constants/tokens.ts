@@ -17,16 +17,16 @@ export const SOLANA_DEVNET_TOKENS: Token[] = [
   {
     symbol: 'USDC',
     name: 'USD Coin (Devnet)',
-    mint: 'BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k',
+    mint: 'USDCoctVLVnvTXBEuP9s8hntucdJokbo17RwHuNXemT',
     decimals: 6,
     logo: '$',
   },
   {
-    symbol: 'USDT',
-    name: 'Tether USD (Devnet)',
-    mint: 'H8UekPGwePSmQ3ttuYGPU1szyFfjZR4N53rymSFwpLPm',
+    symbol: 'RAY',
+    name: 'Raydium (Devnet)',
+    mint: 'DRay3aNHKdjZ4P4DoRnyxdKh6jBrf4HpjfDkQF7MFPpR',
     decimals: 6,
-    logo: '₮',
+    logo: '☀',
   },
 ];
 
